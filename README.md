@@ -128,6 +128,34 @@ submerse open <BOOKMARK>                   # opens the URL in your browser (http
   (an AI summary arriving, say), both versions are kept and printed.
 - Search results can lag a few seconds behind recent saves and edits.
 
+### Notes history
+
+```bash
+submerse notes history <BOOKMARK>                    # earlier versions of the notes, newest first
+submerse notes history <BOOKMARK> --show <VERSION>   # one version's whole text
+submerse notes restore <BOOKMARK> <VERSION>          # put that version back as the notes
+```
+
+- Submerse keeps a version of a bookmark's notes (or of a note's text) each time they change by more than a
+  few characters, up to 50 versions or 300 KB a bookmark. `history` lists them with an id, when each was
+  saved, whose save it was (you, a name, or "Earlier text" for what a save replaced) and the first line of its
+  text. Each save records the text it leaves, so the newest version is usually the notes as they are now:
+  `yes` under CURRENT (`"current": true` in `--json`) marks a version whose text is the notes as they stand,
+  and restoring it changes nothing. When none is marked (a small edit since, or text Submerse wrote), the
+  notes as they are now are in no version: `show` prints them.
+- Only someone who can **edit** the bookmark can read its history, and the owner sees every version. For
+  anyone else, and for a bookmark that doesn't exist, the answer is the same ("No notes history for …"), exit 4.
+  A bookmark that has no earlier versions says "No earlier versions yet." and exits 0.
+- `restore` takes the version's **id** as `history` prints it, never a position in the list: a position
+  shifts when someone saves in between, and the wrong text would be restored. It saves that text over the
+  notes as they are now, like any other edit, so it does not ask first, and the notes it replaces stay in the
+  history: a restore is undone by restoring the version it replaced. A version that already is the notes
+  is left alone: `restore` says "… is already the notes of …; nothing was changed." and exits 0 (`"outcome":
+  "unchanged"`). A version that is not this bookmark's exits 4, "That notes version could not be found." A
+  bookmark that isn't there or that you can't edit reads as "No notes history for …" (exit 4) for
+  `restore` too. While Submerse has notes history paused, `restore` is refused with the server's own
+  sentence (exit 1); `history` still reads.
+
 ### Trash
 
 ```bash
@@ -199,6 +227,8 @@ picker in All Bookmarks. The CLI does not read or write pool labels; `show` list
 
 `trash purge`, `trash empty`, `pool rm`, `label rm` and `label merge` ask `[y/N]` when run in a terminal.
 In a script, a pipe or an agent there is no one to ask, so they refuse unless you pass `--yes`.
+`notes restore` does not ask, as `edit --note` doesn't when it replaces the notes: what it replaces stays in
+the history.
 
 ### Several bookmarks at once
 
@@ -231,7 +261,16 @@ below are stable: fields may be added, never renamed or removed.
 
 // Label
 {"id": "…", "name": "…", "color": "#RRGGBB" | null}
+
+// NoteVersion (notes history), with its whole text
+{"id": "…", "savedAt": "2026-10-06T07:11:00.123Z", "source": "user" | "restore" | "earlier" | "unknown",
+ "author": "you" | "other" | "none" | "unknown", "authorName": "…" | null,
+ "restoredFromSavedAt": "2026-10-05T10:00:00.000Z" | null, "current": true | false, "notes": "…"}
 ```
+
+`unknown` in `source` or `author` is a value the server sent that this version of the CLI has no name for.
+`authorName` is never an address, and is `null` for your own saves. `current` is true for a version whose
+text is the notes as they stand now (space at either end ignored).
 
 | Command | `--json` stdout |
 |---|---|
@@ -241,6 +280,9 @@ below are stable: fields may be added, never renamed or removed.
 | `add` | `{"id", "url", "existing", "pools": [id], "skippedPools": [{"id","name"}] (pools it could not be added to), "favorite", "titlePinned", "labels": [Label], "createdLabels": [name]}` |
 | `edit` | `{"bookmark": Bookmark, "changed": ["title"\|"notes"\|"url"], "replacedTitle": string \| null, "notesKeptBoth": bool}` |
 | `open` | `{"id", "url", "opened": bool}` |
+| `notes history` | `{"bookmarkId", "versions": [NoteVersion]}`, newest first (`[]` when there are none) |
+| `notes history --show` | `{"bookmarkId", "version": NoteVersion}` |
+| `notes restore` | `{"id", "versionId", "outcome": "saved" \| "unchanged" \| "keptBoth", "notes": string \| null}` (`notes`: the notes now held; `unchanged`: the version already was the notes, nothing was sent) |
 | `trash list` | `{"bookmarks": [Bookmark], "nextCursor": "…" \| null}` |
 | `trash empty` | `{"deleted": number}` |
 | `reorder` | `{"id", "pool", "before": id \| null, "after": id \| null, "changed": bool}` |
@@ -265,7 +307,7 @@ below are stable: fields may be added, never renamed or removed.
 | 1 | Error (the server refused, a network failure, an ambiguous name, or a batch whose failures had different exit codes) |
 | 2 | Usage: bad arguments, an invalid URL / colour / name, `--deployment` naming a deployment `SUBMERSE_API_KEY` is not sent to, a refused operation (moving out of All Bookmarks, `mv` of someone else's bookmark, `mv --from` a pool it isn't in, `tag` across workspaces), or a confirmation without `--yes` and no terminal |
 | 3 | Not signed in: no key, a revoked or unknown key, a deleted account. The message says to run `submerse auth login`. |
-| 4 | Not found: a bookmark, pool or label that doesn't exist or that you can't see |
+| 4 | Not found: a bookmark, pool or label that doesn't exist or that you can't see; a bookmark whose notes history you can't read (the same answer: you can't edit it, or it isn't there); a notes version id that isn't that bookmark's |
 
 A command given several bookmarks or labels ([Several bookmarks at once](#several-bookmarks-at-once))
 exits with its failures' shared code — 4 when every failure was not-found, say — or 1 when they differ.
